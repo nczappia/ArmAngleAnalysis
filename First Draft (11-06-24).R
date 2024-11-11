@@ -3,7 +3,7 @@ library(tidyverse)
 
 MLB_24 <- read_csv("data/MLB_24.csv")
 
-MLB
+MLB_ID <- read_csv("data/MLB_ID.csv")
 
 ArmAngleData = list(
   ArmAngle = read_csv("data/pitcher_arm_angles (1).csv") %>%
