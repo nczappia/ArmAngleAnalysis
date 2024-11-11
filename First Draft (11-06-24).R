@@ -1,11 +1,15 @@
 
 library(tidyverse)
 
+MLB_24 <- read_csv("data/MLB_24.csv")
+
+MLB
+
 ArmAngleData = list(
-  ArmAngle = read_csv("C:/Users/sppap/Downloads/pitcher_arm_angles (1).csv") %>%
+  ArmAngle = read_csv("data/pitcher_arm_angles (1).csv") %>%
     select(pitcher, pitcher_name, ball_angle),
   ArmAngleData2 = list(
-    ArmAngleSpinDirection = read_csv("C:/Users/sppap/Downloads/spin-direction-pitches (1).csv") %>%
+    ArmAngleSpinDirection = read_csv("data/spin-direction-pitches (1).csv") %>%
       select(pitcher_name, pitch_type, player_id, diff2, active_spin) %>%
       rename(pitcher = player_id) %>% filter(pitch_type == "FF"),
     PitchMovement2 = MLB_24 %>%
@@ -40,7 +44,7 @@ ArmAngleData = list(
       reframe(EV = mean(launch_speed, na.rm = T), LA = mean(launch_angle, na.rm = T))
   ) %>% reduce(merge, by = c("pitcher", "pitch_type")),
   Height = list(
-    Height1 = read_csv("C:/Users/sppap/Downloads/SwStr Model (VBOE) - Sheet1.csv") %>%
+    Height1 = read_csv("data/SwStr Model (VBOE) - Sheet1.csv") %>%
       mutate(Height = Ft. * 12 + In.) %>%
       select(PlayerID, Height),
     Height2 = MLB_ID %>%
