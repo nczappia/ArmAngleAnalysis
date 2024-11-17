@@ -51,7 +51,11 @@ ArmAngleData = list(
     Height2 = MLB_ID %>%
       select(mlbid, key_bbref) %>%
       rename(pitcher = mlbid, PlayerID = key_bbref)
-  ) %>% reduce(merge, by = "PlayerID") %>% select(pitcher, Height)
+  ) %>% reduce(merge, by = "PlayerID") %>% select(pitcher, Height),
+  TotalPitches = MLB_24 %>%
+    filter(Month != 10) %>%
+    group_by(pitcher) %>%
+    reframe(Pitches_total = n())
 ) %>% reduce(merge, by = "pitcher") %>%
   select(-c(pitcher_name.y)) %>% rename(pitcher_name = pitcher_name.x)
 
@@ -65,7 +69,8 @@ ArmAngle_hPredict = predict(ArmAngle_hModel, newdata = ArmAngleData, type = "res
 
 ArmAngleMaster = cbind(ArmAngleData, ArmAngle_vPredict, ArmAngle_hPredict) %>%
   rename(vMove_exp = ArmAngle_vPredict, hMove_exp = ArmAngle_hPredict) %>%
-  mutate(vMove_exp = exp(vMove_exp), vMove_diff = vMove - vMove_exp, hMove_diff = hMove - hMove_exp)
+  mutate(vMove_exp = exp(vMove_exp), vMove_diff = vMove - vMove_exp, hMove_diff = hMove - hMove_exp,
+         Pitch_p = Pitches/Pitches_total)
 
 ArmAngle_whiffModel = lm(Whiff_p ~ vMove_diff + Velocity + VAA + Zone_loc, ArmAngleMaster)
 
