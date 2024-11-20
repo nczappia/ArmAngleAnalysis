@@ -6,10 +6,8 @@ MLB_24 <- read_csv("data/MLB_24.csv")
 MLB_ID <- read_csv("data/MLB_ID.csv")
 
 ArmAngleData = list(
-  ArmAngle = read_csv("data/pitcher_arm_angles (1).csv") %>%
-    select(pitcher, pitcher_name, ball_angle),
-  ArmAngleData2 = list(
-    ArmAngleSpinDirection = read_csv("data/spin-direction-pitches (1).csv") %>%
+  ArmAngleData = list(
+    ArmAngleSpinDirection <- read_csv("data/spin-direction-pitches (1).csv") %>%
       rename(pitcher_name = `last_name, first_name`, pitch_type = api_pitch_type) %>%
       select(pitcher_name, pitch_type, player_id, diff2, active_spin) %>%
       rename(pitcher = player_id) %>% filter(pitch_type == "FF"),
@@ -26,7 +24,7 @@ ArmAngleData = list(
              release_angle_z = atan(vz0/sqrt(vx0^2+vy0^2)) * 180/pi,
              Zone_loc = abs(sz_top - plate_z)) %>%
       group_by(pitcher, pitch_type) %>%
-      reframe(vMove = mean(pfx_z, na.rm = T) * 12, hMove = mean(pfx_x_adj, na.rm = T) * 12, Pitches = n(),
+      reframe(ball_angle = mean(arm_angle, na.rm = T), vMove = mean(pfx_z, na.rm = T) * 12, hMove = mean(pfx_x_adj, na.rm = T) * 12, Pitches = n(),
               Whiff = length(which(description %in% c("swinging_strike", "swinging_strike_blocked", "foul_tip"))),
               Swing = length(which(description %in% c("swinging_strike", "swinging_strike_blocked", "foul_tip",
                                                       "foul", "foul_bunt", "bunt_foul_tip", "foul_pitchout",
@@ -62,8 +60,7 @@ ArmAngleData = list(
     filter(Month != 10) %>%
     group_by(pitcher) %>%
     reframe(Pitches_total = n())
-) %>% reduce(merge, by = "pitcher") %>%
-  select(-c(pitcher_name.y)) %>% rename(pitcher_name = pitcher_name.x)
+) %>% reduce(merge, by = "pitcher")
 
 ArmAngle_vModel = lm(log(vMove) ~ ball_angle * active_spin + I(ball_angle^2) + I(active_spin^2), ArmAngleData)
 
@@ -84,6 +81,15 @@ ArmAngle_whiffPredict = predict(ArmAngle_whiffModel, newdata = ArmAngleMaster, t
 
 ArmAngleWhiff = cbind(ArmAngleMaster, ArmAngle_whiffPredict) %>%
   rename(xWhiff_p = ArmAngle_whiffPredict) %>%
-  select(pitcher_name, pitcher, Pitches, Velocity, VAA, vMove_diff, Zone_loc, Whiff_p, xWhiff_p) %>%
+  select(pitcher_name, pitcher, Pitches, Pitch_p, Velocity, VAA, vMove_diff, Zone_loc, Whiff_p, xWhiff_p, ball_angle) %>%
   arrange(desc(xWhiff_p)) %>%
-  mutate(xWhiff_rank = row_number(), xWhiff_pct = 1 - xWhiff_rank/572, Whiff_diff = Whiff_p - xWhiff_p)
+  filter(Pitches >= 50) %>%
+  mutate(xWhiff_rank = row_number(), xWhiff_pct = 1 - xWhiff_rank/max(xWhiff_rank), Whiff_diff = Whiff_p - xWhiff_p)
+
+ArmAngleData %>% 
+  ggplot(aes(x = interaction(ball_angle, active_spin), y = vMove)) + 
+  geom_point() + 
+  geom_smooth() +
+  geom_smooth(method = "lm", color = "red")
+
+cor.test(ArmAngleWhiff$Whiff_p, ArmAngleWhiff$xWhiff_p, method = "pearson")
