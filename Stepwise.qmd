@@ -1,0 +1,152 @@
+---
+title: "Stepwise Analysis"
+format: html
+editor: visual
+---
+
+## Stepwise Regression on All Arm Angle Variables
+
+#### Generating the Arm Angle Data
+```{r}
+library(tidyverse)
+
+MLB_24 <- read_csv("data/MLB_24.csv")
+
+MLB_ID <- read_csv("data/MLB_ID.csv")
+
+ArmAngleData = list(
+  ArmAngle = read_csv("data/pitcher_arm_angles (1).csv") %>%
+    select(pitcher, pitcher_name, ball_angle),
+  ArmAngleData2 = list(
+    ArmAngleSpinDirection = read_csv("data/spin-direction-pitches (1).csv") %>%
+      select(pitcher_name, pitch_type, player_id, diff2, active_spin) %>%
+      rename(pitcher = player_id) %>% filter(pitch_type == "FF"),
+    PitchMovement2 = MLB_24 %>%
+      filter(Month != 10) %>%
+      mutate(pfx_x_adj = case_when(p_throws == "R" & pfx_x < 0 ~ abs(pfx_x),
+                                   p_throws == "R" & pfx_x >= 0 ~ -abs(pfx_x),
+                                   p_throws == "L" & pfx_x >= 0 ~ abs(pfx_x),
+                                   p_throws == "L" & pfx_x < 0 ~ -abs(pfx_x),
+                                   .default = pfx_x),
+             vy_f = -sqrt(vy0^2-(2*ay*(50-17/12))), 
+             t = (vy_f-vy0)/ay, vz_f = vz0+(az*t), VAA = -atan(vz_f/vy_f)*(180/pi),
+             release_angle_x = atan(vx0/vy0) * 180/pi, 
+             release_angle_z = atan(vz0/sqrt(vx0^2+vy0^2)) * 180/pi,
+             Zone_loc = abs(sz_top - plate_z)) %>%
+      group_by(pitcher, pitch_type) %>%
+      reframe(vMove = mean(pfx_z, na.rm = T) * 12, hMove = mean(pfx_x_adj, na.rm = T) * 12, Pitches = n(),
+              Whiff = length(which(description %in% c("swinging_strike", "swinging_strike_blocked", "foul_tip"))),
+              Swing = length(which(description %in% c("swinging_strike", "swinging_strike_blocked", "foul_tip",
+                                                      "foul", "foul_bunt", "bunt_foul_tip", "foul_pitchout",
+                                                      "hit_into_play", "missed_bunt"))), 
+              Whiff_p = Whiff/Pitches,
+              GB_p = length(which(bb_type %in% c("ground_ball")))/length(which(!is.na(bb_type))),
+              FB_p = length(which(bb_type %in% c("fly_ball", "popup")))/length(which(!is.na(bb_type))),
+              Velocity = mean(release_speed, na.rm = T), RP_z = mean(release_pos_z, na.rm = T),
+              RP_x = mean(release_pos_x, na.rm = T), VAA = mean(VAA, na.rm = T),
+              release_angle_x = mean(release_angle_x, na.rm = T), release_angle_z = mean(release_angle_z, na.rm = T), 
+              Spin = mean(release_spin_rate, na.rm = T), bat_speed_diff = mean(bat_speed_diff, na.rm = T),
+              Zone_loc = mean(Zone_loc, na.rm = T)) %>%
+      filter(pitch_type == "FF", Pitches >= 50),
+    LaunchAngle = MLB_24 %>%
+      filter(!is.na(bb_type)) %>%
+      group_by(pitcher, pitch_type) %>%
+      reframe(EV = mean(launch_speed, na.rm = T), LA = mean(launch_angle, na.rm = T))
+  ) %>% reduce(merge, by = c("pitcher", "pitch_type")),
+  Height = list(
+    Height1 = read_csv("data/SwStr Model (VBOE) - Sheet1.csv") %>%
+      mutate(Height = Ft. * 12 + In.) %>%
+      select(PlayerID, Height),
+    Height2 = MLB_ID %>%
+      select(mlbid, key_bbref) %>%
+      rename(pitcher = mlbid, PlayerID = key_bbref)
+  ) %>% reduce(merge, by = "PlayerID") %>% select(pitcher, Height)
+) %>% reduce(merge, by = "pitcher") %>%
+  select(-c(pitcher_name.y)) %>% rename(pitcher_name = pitcher_name.x)
+
+# ArmAngle_vModel = lm(log(vMove) ~ ball_angle * active_spin + I(ball_angle^2) + I(active_spin^2), ArmAngleData)
+#
+# ArmAngle_vPredict = predict(ArmAngle_vModel, newdata = ArmAngleData, type = "response")
+# 
+# ArmAngle_hModel = lm(hMove ~ ball_angle * active_spin, ArmAngleData)
+# 
+# ArmAngle_hPredict = predict(ArmAngle_hModel, newdata = ArmAngleData, type = "response")
+# 
+# ArmAngleMaster = cbind(ArmAngleData, ArmAngle_vPredict, ArmAngle_hPredict) %>%
+#   rename(vMove_exp = ArmAngle_vPredict, hMove_exp = ArmAngle_hPredict) %>%
+#   mutate(vMove_exp = exp(vMove_exp), vMove_diff = vMove - vMove_exp, hMove_diff = hMove - hMove_exp)
+# 
+# ArmAngle_whiffModel = lm(Whiff_p ~ vMove_diff + Velocity + VAA + Zone_loc, ArmAngleMaster)
+# 
+# ArmAngle_whiffPredict = predict(ArmAngle_whiffModel, newdata = ArmAngleMaster, type = "response")
+# 
+# ArmAngleWhiff = cbind(ArmAngleMaster, ArmAngle_whiffPredict) %>%
+#   rename(xWhiff_p = ArmAngle_whiffPredict) %>%
+#   select(pitcher_name, pitcher, Pitches, Velocity, VAA, vMove_diff, Zone_loc, Whiff_p, xWhiff_p) %>%
+#   arrange(desc(xWhiff_p)) %>%
+#   mutate(xWhiff_rank = row_number(), Whiff_diff = Whiff_p - xWhiff_p)
+```
+
+### Testing to list all variables
+
+```{r}
+column_classes <- map_chr(ArmAngleData, class)
+column_classes
+```
+
+### Build Full Model for Predicting log(vMove)
+
+```{r}
+ArmAngleDataClean <- na.omit(ArmAngleData)
+mod_max <- lm(log(vMove) ~ 
+                 # Main effects for numeric variables
+                 ball_angle + diff2 + active_spin + hMove + 
+                 Pitches + Whiff + Swing + Whiff_p + GB_p + FB_p + Velocity + RP_z + RP_x + VAA + 
+                 release_angle_x + release_angle_z + Spin + bat_speed_diff + Zone_loc + EV + LA + Height + 
+                 # Polynomial terms for all numeric variables
+                 I(ball_angle^2) + I(diff2^2) + I(active_spin^2) + I(hMove^2) +
+                 I(Pitches^2) + I(Whiff^2) + I(Swing^2) + I(Whiff_p^2) + I(GB_p^2) + I(FB_p^2) + 
+                 I(Velocity^2) + I(RP_z^2) + I(RP_x^2) + I(VAA^2) + I(release_angle_x^2) + I(release_angle_z^2) + 
+                 I(Spin^2) + I(bat_speed_diff^2) + I(Zone_loc^2) + I(EV^2) + I(LA^2) + I(Height^2) +
+                 # Optional: Add cubic terms if needed for higher-degree polynomials
+                 I(ball_angle^3) + I(diff2^3) + I(active_spin^3) + I(hMove^3) +
+                 I(Pitches^3) + I(Whiff^3) + I(Swing^3) + I(Whiff_p^3) + I(GB_p^3) + I(FB_p^3) + 
+                 I(Velocity^3) + I(RP_z^3) + I(RP_x^3) + I(VAA^3) + I(release_angle_x^3) + I(release_angle_z^3) + 
+                 I(Spin^3) + I(bat_speed_diff^3) + I(Zone_loc^3) + I(EV^3) + I(LA^3) + I(Height^3),
+                 # Interaction terms between numeric and categorical variables (all numeric vars with all categorical vars)
+               data = ArmAngleDataClean)
+
+summary(mod_max)
+```
+
+### Attempting Stepwise Selection on the Full Model
+
+```{r}
+mod_best <- step(mod_max, direction = "both")
+summary(mod_best)
+```
+
+### Compare to Original Model for Predicting log(vMove)
+
+```{r}
+ArmAngle_vModel = lm(log(vMove) ~ ball_angle * active_spin + I(ball_angle^2) + I(active_spin^2), ArmAngleDataClean)
+
+anova(ArmAngle_vModel, mod_best)
+
+print(paste("Original Model Adjusted R-Squared: ", summary(ArmAngle_vModel)$adj.r.squared))
+print(paste("Stepwise Model Adjusted R-Squared: ", summary(mod_best)$adj.r.squared))
+
+print(paste("Original Model AIC: ", AIC(ArmAngle_vModel)))
+print(paste("Stepwise Model AIC: ", AIC(mod_best)))
+
+#BIC is Bayesian Information Citerion, similar to AIC
+print(paste("Original Model BIC: ", AIC(ArmAngle_vModel)))
+print(paste("Stepwise Model BIC: ", AIC(mod_best)))
+
+library(regclass)
+
+print("Original Model VIF: ") 
+VIF(ArmAngle_vModel)
+print("Stepwise Model VIF: ") 
+VIF(mod_best)
+```
