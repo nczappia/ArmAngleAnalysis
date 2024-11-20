@@ -10,6 +10,7 @@ ArmAngleData = list(
     select(pitcher, pitcher_name, ball_angle),
   ArmAngleData2 = list(
     ArmAngleSpinDirection = read_csv("data/spin-direction-pitches (1).csv") %>%
+      rename(pitcher_name = `last_name, first_name`, pitch_type = api_pitch_type) %>%
       select(pitcher_name, pitch_type, player_id, diff2, active_spin) %>%
       rename(pitcher = player_id) %>% filter(pitch_type == "FF"),
     PitchMovement2 = MLB_24 %>%
@@ -37,7 +38,7 @@ ArmAngleData = list(
               RP_x = mean(release_pos_x, na.rm = T), VAA = mean(VAA, na.rm = T),
               release_angle_x = mean(release_angle_x, na.rm = T), release_angle_z = mean(release_angle_z, na.rm = T), 
               Spin = mean(release_spin_rate, na.rm = T), bat_speed_diff = mean(bat_speed_diff, na.rm = T),
-              Zone_loc = mean(Zone_loc, na.rm = T)) %>%
+              Zone_loc = mean(Zone_loc, na.rm = T), Zone_loc_sd = sd(Zone_loc, na.rm = T)) %>%
       filter(pitch_type == "FF", Pitches >= 50),
     LaunchAngle = MLB_24 %>%
       filter(!is.na(bb_type)) %>%
@@ -51,7 +52,11 @@ ArmAngleData = list(
     Height2 = MLB_ID %>%
       select(mlbid, key_bbref) %>%
       rename(pitcher = mlbid, PlayerID = key_bbref)
-  ) %>% reduce(merge, by = "PlayerID") %>% select(pitcher, Height)
+  ) %>% reduce(merge, by = "PlayerID") %>% select(pitcher, Height),
+  TotalPitches = MLB_24 %>%
+    filter(Month != 10) %>%
+    group_by(pitcher) %>%
+    reframe(Pitches_total = n())
 ) %>% reduce(merge, by = "pitcher") %>%
   select(-c(pitcher_name.y)) %>% rename(pitcher_name = pitcher_name.x)
 
@@ -65,7 +70,8 @@ ArmAngle_hPredict = predict(ArmAngle_hModel, newdata = ArmAngleData, type = "res
 
 ArmAngleMaster = cbind(ArmAngleData, ArmAngle_vPredict, ArmAngle_hPredict) %>%
   rename(vMove_exp = ArmAngle_vPredict, hMove_exp = ArmAngle_hPredict) %>%
-  mutate(vMove_exp = exp(vMove_exp), vMove_diff = vMove - vMove_exp, hMove_diff = hMove - hMove_exp)
+  mutate(vMove_exp = exp(vMove_exp), vMove_diff = vMove - vMove_exp, hMove_diff = hMove - hMove_exp,
+         Pitch_p = Pitches/Pitches_total)
 
 ArmAngle_whiffModel = lm(Whiff_p ~ vMove_diff + Velocity + VAA + Zone_loc, ArmAngleMaster)
 
