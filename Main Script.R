@@ -6,14 +6,14 @@ MLB_24 <- read_csv("data/MLB_24.csv")
 MLB_ID <- read_csv("data/MLB_ID.csv")
 
 ArmAngleData = list(
-  ArmAngle = read_csv("C:/Users/sppap/Downloads/pitcher_arm_angles (1).csv") %>%
+  ArmAngle = read_csv("data/pitcher_arm_angles (1).csv") %>%
     select(pitcher, pitcher_name, ball_angle),
   ArmAngleData2 = list(
-    ArmAngleSpinDirection = read_csv("C:/Users/sppap/Downloads/spin-direction-pitches (1).csv") %>%
+    ArmAngleSpinDirection = read_csv("data/spin-direction-pitches (1).csv") %>%
       rename(pitcher_name = `last_name, first_name`, pitch_type = api_pitch_type) %>%
       select(pitcher_name, pitch_type, player_id, diff2, active_spin) %>%
       rename(pitcher = player_id) %>% filter(pitch_type == "FF"),
-    PitchMovement2 = MLB_24 %>%
+    PitchMovement2 <- MLB_24 %>%
       filter(Month != 10) %>%
       mutate(pfx_x_adj = case_when(p_throws == "R" & pfx_x < 0 ~ abs(pfx_x),
                                    p_throws == "R" & pfx_x >= 0 ~ -abs(pfx_x),
@@ -38,8 +38,13 @@ ArmAngleData = list(
               RP_x = mean(release_pos_x, na.rm = T), VAA = mean(VAA, na.rm = T),
               release_angle_x = mean(release_angle_x, na.rm = T), release_angle_z = mean(release_angle_z, na.rm = T), 
               Spin = mean(release_spin_rate, na.rm = T), bat_speed_diff = mean(bat_speed_diff, na.rm = T),
-              Zone_loc = mean(Zone_loc, na.rm = T), Zone_loc_sd = sd(Zone_loc, na.rm = T)) %>%
+              Zone_loc = mean(Zone_loc, na.rm = T), Extension = mean(release_extension, na.rm = T)) %>%
       filter(pitch_type == "FF", Pitches >= 50),
+    PitchMovement3 = MLB_24 %>%
+      filter(Month != 10) %>%
+      mutate(Zone_loc = abs(sz_top - plate_z)) %>%
+      group_by(pitcher, pitch_type) %>%
+      reframe(Zone_loc_sd = sd(Zone_loc, na.rm = T)),
     LaunchAngle = MLB_24 %>%
       filter(!is.na(bb_type)) %>%
       group_by(pitcher, pitch_type) %>%
@@ -81,4 +86,4 @@ ArmAngleWhiff = cbind(ArmAngleMaster, ArmAngle_whiffPredict) %>%
   rename(xWhiff_p = ArmAngle_whiffPredict) %>%
   select(pitcher_name, pitcher, Pitches, Velocity, VAA, vMove_diff, Zone_loc, Whiff_p, xWhiff_p) %>%
   arrange(desc(xWhiff_p)) %>%
-  mutate(xWhiff_rank = row_number(), Whiff_diff = Whiff_p - xWhiff_p)
+  mutate(xWhiff_rank = row_number(), xWhiff_pct = 1 - xWhiff_rank/572, Whiff_diff = Whiff_p - xWhiff_p)
