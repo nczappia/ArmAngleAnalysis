@@ -1,0 +1,199 @@
+---
+title: "Project Topic Analysis"
+format: html
+editor: visual
+---
+
+# Model Creation Script
+
+```{r}
+
+library(tidyverse)
+
+MLB_24 <- read_csv("data/MLB_24.csv")
+
+MLB_ID <- read_csv("data/MLB_ID.csv")
+
+ArmAngleData = list(
+  ArmAngleData = list(
+    ArmAngleSpinDirection <- read_csv("data/spin-direction-pitches (1).csv") %>%
+      rename(pitcher_name = `last_name, first_name`, pitch_type = api_pitch_type) %>%
+      select(pitcher_name, pitch_type, player_id, diff2, active_spin) %>%
+      rename(pitcher = player_id) %>% filter(pitch_type == "FF"),
+    PitchMovement2 <- MLB_24 %>%
+      filter(Month != 10) %>%
+      mutate(pfx_x_adj = case_when(p_throws == "R" & pfx_x < 0 ~ abs(pfx_x),
+                                   p_throws == "R" & pfx_x >= 0 ~ -abs(pfx_x),
+                                   p_throws == "L" & pfx_x >= 0 ~ abs(pfx_x),
+                                   p_throws == "L" & pfx_x < 0 ~ -abs(pfx_x),
+                                   .default = pfx_x),
+             vy_f = -sqrt(vy0^2-(2*ay*(50-17/12))), 
+             t = (vy_f-vy0)/ay, vz_f = vz0+(az*t), VAA = -atan(vz_f/vy_f)*(180/pi),
+             release_angle_x = atan(vx0/vy0) * 180/pi, 
+             release_angle_z = atan(vz0/sqrt(vx0^2+vy0^2)) * 180/pi,
+             Zone_loc = abs(sz_top - plate_z)) %>%
+      group_by(pitcher, pitch_type) %>%
+      reframe(ball_angle = mean(arm_angle, na.rm = T), vMove = mean(pfx_z, na.rm = T) * 12, hMove = mean(pfx_x_adj, na.rm = T) * 12, Pitches = n(),
+              Whiff = length(which(description %in% c("swinging_strike", "swinging_strike_blocked", "foul_tip"))),
+              Swing = length(which(description %in% c("swinging_strike", "swinging_strike_blocked", "foul_tip",
+                                                      "foul", "foul_bunt", "bunt_foul_tip", "foul_pitchout",
+                                                      "hit_into_play", "missed_bunt"))), 
+              Whiff_p = Whiff/Pitches,
+              GB_p = length(which(bb_type %in% c("ground_ball")))/length(which(!is.na(bb_type))),
+              FB_p = length(which(bb_type %in% c("fly_ball", "popup")))/length(which(!is.na(bb_type))),
+              Velocity = mean(release_speed, na.rm = T), RP_z = mean(release_pos_z, na.rm = T),
+              RP_x = mean(release_pos_x, na.rm = T), VAA = mean(VAA, na.rm = T),
+              release_angle_x = mean(release_angle_x, na.rm = T), release_angle_z = mean(release_angle_z, na.rm = T), 
+              Spin = mean(release_spin_rate, na.rm = T), bat_speed_diff = mean(bat_speed_diff, na.rm = T),
+              Zone_loc = mean(Zone_loc, na.rm = T), Extension = mean(release_extension, na.rm = T)) %>%
+      filter(pitch_type == "FF", Pitches >= 50),
+    PitchMovement3 = MLB_24 %>%
+      filter(Month != 10) %>%
+      mutate(Zone_loc = abs(sz_top - plate_z)) %>%
+      group_by(pitcher, pitch_type) %>%
+      reframe(Zone_loc_sd = sd(Zone_loc, na.rm = T)),
+    LaunchAngle = MLB_24 %>%
+      filter(!is.na(bb_type)) %>%
+      group_by(pitcher, pitch_type) %>%
+      reframe(EV = mean(launch_speed, na.rm = T), LA = mean(launch_angle, na.rm = T))
+  ) %>% reduce(merge, by = c("pitcher", "pitch_type")),
+  Height = list(
+    Height1 = read_csv("data/SwStr Model (VBOE) - Sheet1.csv") %>%
+      mutate(Height = Ft. * 12 + In.) %>%
+      select(PlayerID, Height),
+    Height2 = MLB_ID %>%
+      select(mlbid, key_bbref) %>%
+      rename(pitcher = mlbid, PlayerID = key_bbref)
+  ) %>% reduce(merge, by = "PlayerID") %>% select(pitcher, Height),
+  TotalPitches = MLB_24 %>%
+    filter(Month != 10) %>%
+    group_by(pitcher) %>%
+    reframe(Pitches_total = n())
+) %>% reduce(merge, by = "pitcher")
+
+ArmAngle_vModel = lm(log(vMove) ~ ball_angle * active_spin + I(ball_angle^2) + I(active_spin^2), ArmAngleData)
+
+ArmAngle_vPredict = predict(ArmAngle_vModel, newdata = ArmAngleData, type = "response")
+
+ArmAngle_hModel = lm(hMove ~ ball_angle * active_spin, ArmAngleData)
+
+ArmAngle_hPredict = predict(ArmAngle_hModel, newdata = ArmAngleData, type = "response")
+
+ArmAngleMaster = cbind(ArmAngleData, ArmAngle_vPredict, ArmAngle_hPredict) %>%
+  rename(vMove_exp = ArmAngle_vPredict, hMove_exp = ArmAngle_hPredict) %>%
+  mutate(vMove_exp = exp(vMove_exp), vMove_diff = vMove - vMove_exp, hMove_diff = hMove - hMove_exp,
+         Pitch_p = Pitches/Pitches_total)
+
+ArmAngle_whiffModel = lm(Whiff_p ~ vMove_diff + Velocity + VAA + Zone_loc, ArmAngleMaster)
+
+ArmAngle_whiffPredict = predict(ArmAngle_whiffModel, newdata = ArmAngleMaster, type = "response")
+
+ArmAngleWhiff = cbind(ArmAngleMaster, ArmAngle_whiffPredict) %>%
+  rename(xWhiff_p = ArmAngle_whiffPredict) %>%
+  select(pitcher_name, pitcher, Pitches, Pitch_p, Velocity, VAA, vMove_diff, Zone_loc, Whiff_p, xWhiff_p, ball_angle) %>%
+  arrange(desc(xWhiff_p)) %>%
+  filter(Pitches >= 50) %>%
+  mutate(xWhiff_rank = row_number(), xWhiff_pct = 1 - xWhiff_rank/max(xWhiff_rank), Whiff_diff = Whiff_p - xWhiff_p)
+
+ArmAngleData %>% 
+  ggplot(aes(x = interaction(ball_angle, active_spin), y = vMove)) + 
+  geom_point() + 
+  geom_smooth() +
+  geom_smooth(method = "lm", color = "red")
+
+cor.test(ArmAngleWhiff$Whiff_p, ArmAngleWhiff$xWhiff_p, method = "pearson")
+```
+
+# All Note Sections and Important Topics
+
+-   [Review and Basics of R]
+
+    -   Only Introductory Info
+
+-   [Simple Linear Regression]
+
+    -   Assumption Checking (Homoscedasticity and Normality)
+
+-   [Correlation Coefficient]
+
+    -   $r^2$
+
+-   [ANOVA]
+
+    -   F-statistic
+
+    -   ANOVA Tables
+
+-   [Multiple Linear Regression]
+
+    -   Same as SLR but applied to multiple variables (Not much new info)
+
+-   [MLR Hypothesis Testing]
+
+    -   Partial Significance Testing
+
+    -   Overall Significance Testing
+
+-   [Categorical Variables]
+
+    -   Interaction Terms
+
+    -   Partial Significance Testing for Interaction Terms
+
+    -   Normalizing data through adding terms
+
+-   [Multicollinearity]
+
+    -   VIF
+
+    -   Relationships between explanatory variables
+
+-   [Transformations and Polynomial Regression]
+
+    -   Log-Transformation (Directly applicable to our project)
+
+    -   Polynomial Regression (Also directly applicable)
+
+-   [Variable Selection]
+
+    -   "Best" regression model
+
+        -   AIC
+
+        -   Adjusted $r^2$
+
+    -   Selection (backward, forward, stepwise)
+
+-   [Influential Observations]
+
+    -   Removing outliers (influential observations)
+
+-   [Logistic Regression]
+
+    -   Predicting based on a binary class (variable)
+
+### Note before going in depth: Interpreting the parameters is a key part of just about every section of notes, so well worth going into for the paper and presentation
+
+## Review and Basics of R
+
+## Simple Linear Regression
+
+## Correlation Coefficient
+
+## ANOVA
+
+## Multiple Linear Regression
+
+## MLR Hypothesis Testing
+
+## Categorical Variables
+
+## Multicollinearity
+
+## Transformations and Polynomial Regression
+
+## Variable Selection
+
+## Influential Observations
+
+## Logistic Regression
