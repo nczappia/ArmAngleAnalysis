@@ -4,12 +4,16 @@ format: html
 editor: visual
 ---
 
+# Libraries
+
+```{r}
+library(tidyverse)
+library(regclass)
+```
+
 # Model Creation Script
 
 ```{r}
-
-library(tidyverse)
-
 MLB_24 <- read_csv("data/MLB_24.csv")
 
 MLB_ID <- read_csv("data/MLB_ID.csv")
@@ -178,22 +182,69 @@ cor.test(ArmAngleWhiff$Whiff_p, ArmAngleWhiff$xWhiff_p, method = "pearson")
 
 ## Simple Linear Regression
 
+#### Assumption Checking
+
+```{r}
+plot(ArmAngle_vModel,1)
+plot(ArmAngle_vModel,2)
+```
+
 ## Correlation Coefficient
 
+#### Analysis of the r\^2 of the model
+
+```{r}
+summary(ArmAngle_vModel)$r.squared
+```
+
 ## ANOVA
+
+#### Using ANOVA to evaluate our model
+
+#### Potentially, we could also compare to alternative models!
+
+```{r}
+anova(ArmAngle_vModel)
+```
 
 ## Multiple Linear Regression
 
 ## MLR Hypothesis Testing
 
+#### Add partial significance tests to show why variables are strong?
+
 ## Categorical Variables
+
+#### None that I'm aware of since there's none in the model, but were there some in the large dataset?
 
 ## Multicollinearity
 
+#### Test the VIF of model's parameters
+
+```{r}
+VIF(ArmAngle_vModel)
+```
+
 ## Transformations and Polynomial Regression
+
+#### Why did we use log transformed movement?
+
+#### Why did we use polynomial variables?
+
+```{r}
+summary(ArmAngle_vModel)
+```
 
 ## Variable Selection
 
+#### Explain why our model is "best" fit (AIC, Adjusted $r^2$)
+
+#### Still include step-wise regression? (I can still definitely include mine Steven, but the model is much more complex)
+
 ## Influential Observations
 
+#### Any outliers worth going over or potentially eliminating?
+
 ## Logistic Regression
+
+#### IGNORE
